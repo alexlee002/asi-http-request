@@ -1398,7 +1398,7 @@ static NSOperationQueue *sharedQueue = nil;
 	[connectionsLock unlock];
 
 	// Schedule the stream
-	if (![self readStreamIsScheduled] && (!throttleWakeUpTime || [throttleWakeUpTime timeIntervalSinceDate:[NSDate date]] < 0)) {
+	if (![self readStreamIsScheduled] && [self shouldThrottleTimeOut]) {
 		[self scheduleReadStream];
 	}
 	
@@ -1564,7 +1564,9 @@ static NSOperationQueue *sharedQueue = nil;
 				
 				// We've uploaded more data,  reset the timeout
 				[self setLastActivityTime:[NSDate date]];
-				[ASIHTTPRequest incrementBandwidthUsedInLastSecond:(unsigned long)(totalBytesSent-lastBytesSent)];		
+                unsigned long bytesSent = (unsigned long)(totalBytesSent-lastBytesSent);
+				[ASIHTTPRequest incrementBandwidthUsedInLastSecond: bytesSent];
+                [self incrementBandwidthUsedInLastSecond:bytesSent]; //single request throttling, by alexlee002
 						
 				#if DEBUG_REQUEST_STATUS
 				if ([self totalBytesSent] == [self postLength]) {
@@ -3260,6 +3262,38 @@ static NSOperationQueue *sharedQueue = nil;
 	return false;
 }
 
+// for extension. by alexlee002
+- (long long)appropriateBufferSizeToRead {
+    long long bufferSize = 16384;
+    if (contentLength > 262144) {
+        bufferSize = 262144;
+    } else if (contentLength > 65536) {
+        bufferSize = 65536;
+    }
+    
+    // Reduce the buffer size if we're receiving data too quickly when bandwidth throttling is active
+    // This just augments the throttling done in measureBandwidthUsage to reduce the amount we go over the limit
+    
+    if ([[self class] isBandwidthThrottled]) {
+        [bandwidthThrottlingLock lock];
+        if (maxBandwidthPerSecond > 0) {
+            long long maxiumumSize  = (long long)maxBandwidthPerSecond-(long long)bandwidthUsedInLastSecond;
+            if (maxiumumSize < 0) {
+                // We aren't supposed to read any more data right now, but we'll read a single byte anyway so the CFNetwork's buffer isn't full
+                bufferSize = 1;
+            } else if (maxiumumSize/4 < bufferSize) {
+                // We were going to fetch more data that we should be allowed, so we'll reduce the size of our read
+                bufferSize = maxiumumSize/4;
+            }
+        }
+        if (bufferSize < 1) {
+            bufferSize = 1;
+        }
+        [bandwidthThrottlingLock unlock];
+    }
+    return bufferSize;
+}
+
 - (void)handleBytesAvailable
 {
 	if (![self responseHeaders]) {
@@ -3278,35 +3312,7 @@ static NSOperationQueue *sharedQueue = nil;
 		return;
 	}
 
-	long long bufferSize = 16384;
-	if (contentLength > 262144) {
-		bufferSize = 262144;
-	} else if (contentLength > 65536) {
-		bufferSize = 65536;
-	}
-	
-	// Reduce the buffer size if we're receiving data too quickly when bandwidth throttling is active
-	// This just augments the throttling done in measureBandwidthUsage to reduce the amount we go over the limit
-	
-	if ([[self class] isBandwidthThrottled]) {
-		[bandwidthThrottlingLock lock];
-		if (maxBandwidthPerSecond > 0) {
-			long long maxiumumSize  = (long long)maxBandwidthPerSecond-(long long)bandwidthUsedInLastSecond;
-			if (maxiumumSize < 0) {
-				// We aren't supposed to read any more data right now, but we'll read a single byte anyway so the CFNetwork's buffer isn't full
-				bufferSize = 1;
-			} else if (maxiumumSize/4 < bufferSize) {
-				// We were going to fetch more data that we should be allowed, so we'll reduce the size of our read
-				bufferSize = maxiumumSize/4;
-			}
-		}
-		if (bufferSize < 1) {
-			bufferSize = 1;
-		}
-		[bandwidthThrottlingLock unlock];
-	}
-	
-	
+    long long bufferSize = [self appropriateBufferSizeToRead];
     UInt8 buffer[bufferSize];
     NSInteger bytesRead = [[self readStream] read:buffer maxLength:sizeof(buffer)];
 
@@ -3336,6 +3342,7 @@ static NSOperationQueue *sharedQueue = nil;
 
 		// For bandwidth measurement / throttling
 		[ASIHTTPRequest incrementBandwidthUsedInLastSecond:(NSUInteger)bytesRead];
+        [self incrementBandwidthUsedInLastSecond:(NSUInteger)bytesRead]; // single request throttling, by alexlee002
 		
 		// If we need to redirect, and have automatic redirect on, and might be resuming a download, let's do nothing with the content
 		if ([self needsRedirect] && [self shouldRedirect] && [self allowResumeForFileDownloads]) {
@@ -4492,7 +4499,6 @@ static NSOperationQueue *sharedQueue = nil;
 }
 
 #pragma mark bandwidth measurement / throttling
-
 - (void)performThrottling
 {
 	if (![self readStream]) {
@@ -4526,6 +4532,18 @@ static NSOperationQueue *sharedQueue = nil;
 		[self scheduleReadStream];			
 	}
 }
+
+//for extension, by alexlee002
+- (BOOL)shouldThrottleTimeOut {
+    return  (!throttleWakeUpTime || [throttleWakeUpTime timeIntervalSinceDate:[NSDate date]] < 0);
+}
+
+//for extension, by alexlee002
+- (void)incrementBandwidthUsedInLastSecond:(NSUInteger)bytesRead {
+    //empty here
+}
+
+
 
 + (BOOL)isBandwidthThrottled
 {
