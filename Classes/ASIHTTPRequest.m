@@ -3369,8 +3369,8 @@ static NSOperationQueue *sharedQueue = nil;
 			}
 			[self performSelectorOnMainThread:@selector(passOnReceivedData:) withObject:data waitUntilDone:[NSThread isMainThread]];
 			
-		// Are we downloading to a file?
-		} else if ([self downloadDestinationPath]) {
+		// Are we downloading to a file? (by alexlee002: should we write to the download file that response status code is not 200 nor 206 ?)
+		} else if ([self downloadDestinationPath] && self.responseStatusCode / 100 == 2) {
 			BOOL append = NO;
 			if (![self fileDownloadOutputStream]) {
 				if (![self temporaryFileDownloadPath]) {
@@ -3388,7 +3388,24 @@ static NSOperationQueue *sharedQueue = nil;
 				[[self fileDownloadOutputStream] open];
 
 			}
-			[[self fileDownloadOutputStream] write:buffer maxLength:(NSUInteger)bytesRead];
+			NSInteger bytesWritten = [[self fileDownloadOutputStream] write:buffer maxLength:(NSUInteger)bytesRead];
+            if (bytesWritten < 0) {
+                NSError *writeToFileError = [NSError
+                    errorWithDomain:NetworkRequestErrorDomain
+                               code:ASIFileManagementError
+                           userInfo:[NSDictionary dictionaryWithObjectsAndKeys:
+                                                      [NSString stringWithFormat:@"can not write to file:%@",
+                                                                                 [self temporaryFileDownloadPath]],
+                                                      NSLocalizedDescriptionKey,
+                                                      [NSError errorWithDomain:NSURLErrorDomain
+                                                                          code:NSURLErrorCannotWriteToFile
+                                                                      userInfo:nil],
+                                                      NSUnderlyingErrorKey, nil]
+
+                ];
+                [self failWithError:writeToFileError];
+                return;
+            }
 
 			if ([self isResponseCompressed] && ![self shouldWaitToInflateCompressedResponses]) {
 				
@@ -3401,7 +3418,26 @@ static NSOperationQueue *sharedQueue = nil;
 					[[self inflatedFileDownloadOutputStream] open];
 				}
 
-				[[self inflatedFileDownloadOutputStream] write:[inflatedData bytes] maxLength:[inflatedData length]];
+				NSInteger bytesWritten = [[self inflatedFileDownloadOutputStream] write:[inflatedData bytes]
+                                                                              maxLength:[inflatedData length]];
+                if (bytesWritten < 0) {
+                    NSError *writeToFileError = [NSError
+                                                 errorWithDomain:NetworkRequestErrorDomain
+                                                 code:ASIFileManagementError
+                                                 userInfo:[NSDictionary dictionaryWithObjectsAndKeys:
+                                                           [NSString stringWithFormat:@"can not write to file:%@",
+                                                                     [self temporaryUncompressedDataDownloadPath]],
+                                                           NSLocalizedDescriptionKey,
+                                                           [NSError errorWithDomain:NSURLErrorDomain
+                                                                               code:NSURLErrorCannotWriteToFile
+                                                                           userInfo:nil],
+                                                           NSUnderlyingErrorKey, nil]
+                                                 
+                                                 ];
+                    [self failWithError:writeToFileError];
+                    return;
+                }
+
 			}
 
 			
@@ -3462,9 +3498,15 @@ static NSOperationQueue *sharedQueue = nil;
 		[[self inflatedFileDownloadOutputStream] close];
 		[self setInflatedFileDownloadOutputStream:nil];
 
-		// If we are going to redirect and we are resuming, let's ignore this download
-		if ([self shouldRedirect] && [self needsRedirect] && [self allowResumeForFileDownloads]) {
-		
+        if (![self validateTransferSizeWithError:&fileError]) {
+            // if response size is not equal to Content-Length, let's ignore this download.
+            
+        } else if ([self downloadDestinationPath] && self.responseStatusCode / 100 != 2) {
+            // let's ignore this download.
+            
+        } else if ([self shouldRedirect] && [self needsRedirect] && [self allowResumeForFileDownloads]) {
+            // If we are going to redirect and we are resuming, let's ignore this download.
+            
 		} else if ([self isResponseCompressed]) {
 			
 			// Decompress the file directly to the destination path
@@ -3545,6 +3587,29 @@ static NSOperationQueue *sharedQueue = nil;
         // Do nothing.
 	}
 
+}
+
+- (BOOL)validateTransferSizeWithError:(NSError **)outErr {
+    NSString *cLength = [responseHeaders valueForKey:@"Content-Length"];
+    if (cLength != nil) {
+        unsigned long long contentlenght = strtoull([cLength UTF8String], NULL, 0);
+        if (contentlenght != self.totalBytesRead) {
+            if (outErr != NULL) {
+                NSDictionary *errorInfo = [NSDictionary
+                    dictionaryWithObjectsAndKeys:[NSString stringWithFormat:@"Bytes read from response is not equals "
+                                                                            @"to content length. Total read: %llu "
+                                                                            @"bytes, content-length: %llu bytes.",
+                                                                            self.totalBytesRead, contentlenght],
+                                                 NSLocalizedDescriptionKey, @(self.totalBytesRead), @"totalBytesRead",
+                                                 @(contentlenght), @"Content-Length", nil];
+                *outErr = [NSError errorWithDomain:NetworkRequestErrorDomain
+                                              code:ASITransferSizeNotExpected
+                                          userInfo:errorInfo];
+            }
+            return NO;
+        }
+    }
+    return YES;
 }
 
 - (void)markAsFinished
