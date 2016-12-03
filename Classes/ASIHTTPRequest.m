@@ -3497,17 +3497,17 @@ static NSOperationQueue *sharedQueue = nil;
 
 		[[self inflatedFileDownloadOutputStream] close];
 		[self setInflatedFileDownloadOutputStream:nil];
-
-        if (![self validateTransferSizeWithError:&fileError]) {
-            // if response size is not equal to Content-Length, let's ignore this download.
-            
-        } else if ([self downloadDestinationPath] && self.responseStatusCode / 100 != 2) {
-            // let's ignore this download.
-            
-        } else if ([self shouldRedirect] && [self needsRedirect] && [self allowResumeForFileDownloads]) {
+        
+        if ([self shouldRedirect] && [self needsRedirect] && [self allowResumeForFileDownloads]) {
             // If we are going to redirect and we are resuming, let's ignore this download.
             
-		} else if ([self isResponseCompressed]) {
+        } else if ([self downloadDestinationPath] && self.responseStatusCode / 100 != 2) {
+            // It's not a correct reponse status, let's ignore this download.
+            
+        } else if (![self validateTransferSizeWithError:&fileError]) {
+            // if response size is not equal to Content-Length, let's ignore this download.
+            
+        } else if ([self isResponseCompressed]) {
 			
 			// Decompress the file directly to the destination path
 			if ([self shouldWaitToInflateCompressedResponses]) {
