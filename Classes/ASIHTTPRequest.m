@@ -24,7 +24,7 @@
 #import "ASIDataCompressor.h"
 
 // Automatically set on build
-NSString *ASIHTTPRequestVersion = @"v1.8.1-61 2011-09-19";
+NSString *ASIHTTPRequestVersion = @"v1.8.2.20161213"; //@alexlee002: the 1.8.2 is the according to offical version in cocoapods.
 
 static NSString *defaultUserAgent = nil;
 
@@ -200,13 +200,15 @@ static NSOperationQueue *sharedQueue = nil;
 
 
 
-
-@property (assign) BOOL complete;
-@property (retain) NSArray *responseCookies;
-@property (assign) int responseStatusCode;
+//@alexlee002:
+// some properties did not specified 'atomic' or 'nonatomic' attribute, this would cause compile error
+// under Xcode 8. So I add 'atomic' to those properties.
+@property (assign, atomic) BOOL complete;
+@property (retain, atomic) NSArray *responseCookies;
+@property (assign, atomic) int responseStatusCode;
 @property (retain, nonatomic) NSDate *lastActivityTime;
 
-@property (assign) unsigned long long partialDownloadSize;
+@property (assign, atomic) unsigned long long partialDownloadSize;
 @property (assign, nonatomic) unsigned long long uploadBufferSize;
 @property (retain, nonatomic) NSOutputStream *postBodyWriteStream;
 @property (retain, nonatomic) NSInputStream *postBodyReadStream;
@@ -215,29 +217,29 @@ static NSOperationQueue *sharedQueue = nil;
 @property (atomic, retain) NSRecursiveLock *cancelledLock;
 @property (retain, nonatomic) NSOutputStream *fileDownloadOutputStream;
 @property (retain, nonatomic) NSOutputStream *inflatedFileDownloadOutputStream;
-@property (assign) int authenticationRetryCount;
-@property (assign) int proxyAuthenticationRetryCount;
+@property (assign, atomic) int authenticationRetryCount;
+@property (assign, atomic) int proxyAuthenticationRetryCount;
 @property (assign, nonatomic) BOOL updatedProgress;
 @property (assign, nonatomic) BOOL needsRedirect;
 @property (assign, nonatomic) int redirectCount;
 @property (retain, nonatomic) NSData *compressedPostBody;
 @property (retain, nonatomic) NSString *compressedPostBodyFilePath;
-@property (retain) NSString *authenticationRealm;
-@property (retain) NSString *proxyAuthenticationRealm;
-@property (retain) NSString *responseStatusMessage;
-@property (assign) BOOL inProgress;
-@property (assign) int retryCount;
+@property (retain, atomic) NSString *authenticationRealm;
+@property (retain, atomic) NSString *proxyAuthenticationRealm;
+@property (retain, atomic) NSString *responseStatusMessage;
+@property (assign, atomic) BOOL inProgress;
+@property (assign, atomic) int retryCount;
 @property (atomic, assign) BOOL willRetryRequest;
-@property (assign) BOOL connectionCanBeReused;
+@property (assign, atomic) BOOL connectionCanBeReused;
 @property (retain, nonatomic) NSMutableDictionary *connectionInfo;
 @property (retain, nonatomic) NSInputStream *readStream;
-@property (assign) ASIAuthenticationState authenticationNeeded;
+@property (assign, atomic) ASIAuthenticationState authenticationNeeded;
 @property (assign, nonatomic) BOOL readStreamIsScheduled;
 @property (assign, nonatomic) BOOL downloadComplete;
-@property (retain) NSNumber *requestID;
+@property (retain, atomic) NSNumber *requestID;
 @property (assign, nonatomic) NSString *runLoopMode;
 @property (retain, nonatomic) NSTimer *statusTimer;
-@property (assign) BOOL didUseCachedResponse;
+@property (assign, atomic) BOOL didUseCachedResponse;
 @property (retain, nonatomic) NSURL *redirectURL;
 
 @property (assign, nonatomic) BOOL isPACFileRequest;
@@ -1218,6 +1220,16 @@ static NSOperationQueue *sharedQueue = nil;
         if (![self validatesSecureCertificate]) {
             // see: http://iphonedevelopment.blogspot.com/2010/05/nsstream-tcp-and-ssl.html
             
+            //@alexlee002:
+            // @see: <CFNetwork/CFSocketStream.h>,
+            // "kCFStreamSSLAllowsExpiredCertificates" and "kCFStreamSSLAllowsAnyRoot" is DEPRECATED starting in OS X 10.6 and iOS 4.0.
+#if __IPHONE_4_0 || __MAC_10_6
+            NSDictionary *sslProperties = [[NSDictionary alloc] initWithObjectsAndKeys:
+                                           [NSNumber numberWithBool:NO],  kCFStreamSSLValidatesCertificateChain,
+                                           kCFNull, kCFStreamSSLPeerName,
+                                           @"kCFStreamSocketSecurityLevelTLSv1_0SSLv3", kCFStreamSSLLevel,
+                                           nil];
+#else
             NSDictionary *sslProperties = [[NSDictionary alloc] initWithObjectsAndKeys:
                                            [NSNumber numberWithBool:YES], kCFStreamSSLAllowsExpiredCertificates,
                                            [NSNumber numberWithBool:YES], kCFStreamSSLAllowsAnyRoot,
@@ -1225,18 +1237,26 @@ static NSOperationQueue *sharedQueue = nil;
                                            kCFNull,kCFStreamSSLPeerName,
                                            @"kCFStreamSocketSecurityLevelTLSv1_0SSLv3", kCFStreamSSLLevel,
                                            nil];
+#endif
             
             CFReadStreamSetProperty((CFReadStreamRef)[self readStream],
                                     kCFStreamPropertySSLSettings,
                                     (CFTypeRef)sslProperties);
             [sslProperties release];
         } else {
+#if __IPHONE_4_0 || __MAC_10_6
+            NSDictionary *sslProperties = [[NSDictionary alloc] initWithObjectsAndKeys:
+                                           [NSNumber numberWithBool:YES],  kCFStreamSSLValidatesCertificateChain,
+                                           @"kCFStreamSocketSecurityLevelTLSv1_0SSLv3", kCFStreamSSLLevel,
+                                           nil];
+#else
             NSDictionary *sslProperties = [[NSDictionary alloc] initWithObjectsAndKeys:
                                            [NSNumber numberWithBool:NO], kCFStreamSSLAllowsExpiredCertificates,
                                            [NSNumber numberWithBool:NO], kCFStreamSSLAllowsAnyRoot,
                                            [NSNumber numberWithBool:YES],  kCFStreamSSLValidatesCertificateChain,
                                            @"kCFStreamSocketSecurityLevelTLSv1_0SSLv3", kCFStreamSSLLevel,
                                            nil];
+#endif
             
             CFReadStreamSetProperty((CFReadStreamRef)[self readStream],
                                     kCFStreamPropertySSLSettings,
@@ -3417,10 +3437,11 @@ static NSOperationQueue *sharedQueue = nil;
 					[self setInflatedFileDownloadOutputStream:[[[NSOutputStream alloc] initToFileAtPath:[self temporaryUncompressedDataDownloadPath] append:append] autorelease]];
 					[[self inflatedFileDownloadOutputStream] open];
 				}
-
-				NSInteger bytesWritten = [[self inflatedFileDownloadOutputStream] write:[inflatedData bytes]
-                                                                              maxLength:[inflatedData length]];
-                if (bytesWritten < 0) {
+                
+                //@alexlee002
+				NSInteger lBytesWritten = [[self inflatedFileDownloadOutputStream] write:[inflatedData bytes]
+                                                                               maxLength:[inflatedData length]];
+                if (lBytesWritten < 0) {
                     NSError *writeToFileError = [NSError
                                                  errorWithDomain:NetworkRequestErrorDomain
                                                  code:ASIFileManagementError
@@ -4077,7 +4098,23 @@ static NSOperationQueue *sharedQueue = nil;
 		// Work around <rdar://problem/5530166>.  This dummy call to 
 		// CFNetworkCopyProxiesForURL initialise some state within CFNetwork 
 		// that is required by CFNetworkCopyProxiesForAutoConfigurationScript.
-		CFRelease(CFNetworkCopyProxiesForURL((CFURLRef)[self url], NULL));
+        // CFRelease(CFNetworkCopyProxiesForURL((CFURLRef)[self url], NULL));
+        
+        //@alexlee002:
+        // From: https://developer.apple.com/library/content/releasenotes/General/APIDiffsMacOSX10_11/Objective-C/CFNetwork.html
+        // The definition of "CFNetworkCopyProxiesForURL()" has been changed from
+        // CFArrayRef CFNetworkCopyProxiesForURL(
+        //      CFURLRef url,
+        //      CFDictionaryRef proxySettings)
+        // to
+        // CFArrayRef _Nonnull CFNetworkCopyProxiesForURL(
+        //      CFURLRef _Nonnull url,
+        //      CFDictionaryRef _Nonnull proxySettings)
+        // And this would cause a compile error on MacOS via Xcode 8
+        CFDictionaryRef proxySettings = CFNetworkCopySystemProxySettings();
+        CFRelease(CFNetworkCopyProxiesForURL((CFURLRef)[self url], proxySettings));
+        CFRelease(proxySettings);
+        
 
 		// Obtain the list of proxies by running the autoconfiguration script
 		CFErrorRef err = NULL;
@@ -4724,12 +4761,11 @@ static NSOperationQueue *sharedQueue = nil;
 	[bandwidthThrottlingLock lock];
 	
 	// We'll split our bandwidth allowance into 4 (which is the default for an ASINetworkQueue's max concurrent operations count) to give all running requests a fighting chance of reading data this cycle
-	long long toRead = maxBandwidthPerSecond/4;
+    //@alexlee002: fix type cast error on Mac OSX
+	unsigned long toRead = maxBandwidthPerSecond/4;
 	if (maxBandwidthPerSecond > 0 && (bandwidthUsedInLastSecond + toRead > maxBandwidthPerSecond)) {
-		toRead = (long long)maxBandwidthPerSecond-(long long)bandwidthUsedInLastSecond;
-		if (toRead < 0) {
-			toRead = 0;
-		}
+		long long toReadTmp = (long long)maxBandwidthPerSecond-(long long)bandwidthUsedInLastSecond;
+        toRead = toReadTmp < 0 ? 0 : (unsigned long)toReadTmp;
 	}
 	
 	if (toRead == 0 || !bandwidthMeasurementDate || [bandwidthMeasurementDate timeIntervalSinceNow] < -0) {

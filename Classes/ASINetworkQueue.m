@@ -12,7 +12,11 @@
 // Private stuff
 @interface ASINetworkQueue ()
 	- (void)resetProgressDelegate:(id *)progressDelegate;
-	@property (assign) int requestsCount;
+
+//@alexlee002:
+// The property did not specified 'atomic' or 'nonatomic' attribute, this would cause compile error
+// under Xcode 8. So I add 'atomic' as default.
+	@property (assign, atomic) int requestsCount;
 @end
 
 @implementation ASINetworkQueue
