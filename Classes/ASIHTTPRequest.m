@@ -1398,7 +1398,7 @@ static NSOperationQueue *sharedQueue = nil;
 	[connectionsLock unlock];
 
 	// Schedule the stream
-	if (![self readStreamIsScheduled] && [self shouldThrottleTimeOut]) {
+	if (![self readStreamIsScheduled] && [self shouldThrottleTimeOut]) {//@alexlee002
 		[self scheduleReadStream];
 	}
 	
@@ -1566,7 +1566,7 @@ static NSOperationQueue *sharedQueue = nil;
 				[self setLastActivityTime:[NSDate date]];
                 unsigned long bytesSent = (unsigned long)(totalBytesSent-lastBytesSent);
 				[ASIHTTPRequest incrementBandwidthUsedInLastSecond: bytesSent];
-                [self incrementBandwidthUsedInLastSecond:bytesSent]; //single request throttling, by alexlee002
+                [self incrementBandwidthUsedInLastSecond:bytesSent]; //@alexlee002: single request throttling
 						
 				#if DEBUG_REQUEST_STATUS
 				if ([self totalBytesSent] == [self postLength]) {
@@ -3262,7 +3262,7 @@ static NSOperationQueue *sharedQueue = nil;
 	return false;
 }
 
-// for extension. by alexlee002
+//@alexlee002: for extension.
 - (long long)appropriateBufferSizeToRead {
     long long bufferSize = 16384;
     if (contentLength > 262144) {
@@ -3312,7 +3312,7 @@ static NSOperationQueue *sharedQueue = nil;
 		return;
 	}
 
-    long long bufferSize = [self appropriateBufferSizeToRead];
+    long long bufferSize = [self appropriateBufferSizeToRead]; //@alexlee002, for extension
     UInt8 buffer[bufferSize];
     NSInteger bytesRead = [[self readStream] read:buffer maxLength:sizeof(buffer)];
 
@@ -3342,7 +3342,7 @@ static NSOperationQueue *sharedQueue = nil;
 
 		// For bandwidth measurement / throttling
 		[ASIHTTPRequest incrementBandwidthUsedInLastSecond:(NSUInteger)bytesRead];
-        [self incrementBandwidthUsedInLastSecond:(NSUInteger)bytesRead]; // single request throttling, by alexlee002
+        [self incrementBandwidthUsedInLastSecond:(NSUInteger)bytesRead]; //@alexlee002: single request throttling
 		
 		// If we need to redirect, and have automatic redirect on, and might be resuming a download, let's do nothing with the content
 		if ([self needsRedirect] && [self shouldRedirect] && [self allowResumeForFileDownloads]) {
@@ -3369,7 +3369,7 @@ static NSOperationQueue *sharedQueue = nil;
 			}
 			[self performSelectorOnMainThread:@selector(passOnReceivedData:) withObject:data waitUntilDone:[NSThread isMainThread]];
 			
-		// Are we downloading to a file? (by alexlee002: should we write to the download file that response status code is not 200 nor 206 ?)
+		// Are we downloading to a file? (@alexlee002: should we write to the download file that response status code is not 200 nor 206 ?)
 		} else if ([self downloadDestinationPath] && self.responseStatusCode / 100 == 2) {
 			BOOL append = NO;
 			if (![self fileDownloadOutputStream]) {
@@ -3502,9 +3502,11 @@ static NSOperationQueue *sharedQueue = nil;
             // If we are going to redirect and we are resuming, let's ignore this download.
             
         } else if ([self downloadDestinationPath] && self.responseStatusCode / 100 != 2) {
+            //@alexlee002
             // It's not a correct reponse status, let's ignore this download.
             
         } else if (![self validateTransferSizeWithError:&fileError]) {
+            //@alexlee002
             // if response size is not equal to Content-Length, let's ignore this download.
             
         } else if ([self isResponseCompressed]) {
@@ -3589,6 +3591,7 @@ static NSOperationQueue *sharedQueue = nil;
 
 }
 
+//@alexlee002
 - (BOOL)validateTransferSizeWithError:(NSError **)outErr {
     NSString *cLength = [responseHeaders valueForKey:@"Content-Length"];
     if (cLength != nil) {
@@ -4598,12 +4601,12 @@ static NSOperationQueue *sharedQueue = nil;
 	}
 }
 
-//for extension, by alexlee002
+//@alexlee002: for extension
 - (BOOL)shouldThrottleTimeOut {
     return  (!throttleWakeUpTime || [throttleWakeUpTime timeIntervalSinceDate:[NSDate date]] < 0);
 }
 
-//for extension, by alexlee002
+//@alexlee002: for extension
 - (void)incrementBandwidthUsedInLastSecond:(NSUInteger)bytesRead {
     //empty here
 }

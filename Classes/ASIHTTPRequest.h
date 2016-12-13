@@ -61,7 +61,7 @@ typedef enum _ASINetworkErrorType {
 	ASITooMuchRedirectionErrorType = 9,
 	ASIUnhandledExceptionError = 10,
 	ASICompressionError = 11,
-    ASITransferSizeNotExpected = 12,
+    ASITransferSizeNotExpected = 12, //@alexlee002
 	
 } ASINetworkErrorType;
 
