@@ -3318,6 +3318,11 @@ static NSOperationQueue *sharedQueue = nil;
 {
 	if (![self responseHeaders]) {
 		[self readResponseHeaders];
+        
+        //@alexlee002
+        if ([self downloadDestinationPath] && self.responseStatusCode >= 400 && rawResponseData == nil) {
+            [self setRawResponseData:[[[NSMutableData alloc] init] autorelease]];
+        }
 	}
 	
 	// If we've cancelled the load part way through (for example, after deciding to use a cached version)
